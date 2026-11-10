@@ -1,0 +1,68 @@
+name: Supabase Database Keep-Alive & Inactivity Reset
+
+on:
+  schedule:
+    # Runs daily at 04:00 UTC (Supabase pauses free-tier databases after 7 days of inactivity)
+    - cron: "0 4 * * *"
+  workflow_dispatch: # Allows manual 1-click execution from GitHub Actions console anytime
+
+concurrency:
+  group: supabase-keepalive
+  cancel-in-progress: true
+
+jobs:
+  keepalive:
+    name: Ping Supabase Database & API Gateway
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Validate Supabase Secrets Configuration
+        run: |
+          if [ -z "${{ secrets.DATABASE_URL }}" ] && [ -z "${{ secrets.DATABASE_UR }}" ] && [ -z "${{ secrets.DIRECT_URL }}" ]; then
+            echo "::error title=Missing Supabase Secret::DATABASE_URL (or DIRECT_URL) secret is not configured in repository secrets!"
+            echo "### ⚠️ Missing Required GitHub Secret: DATABASE_URL" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The keep-alive workflow requires your Supabase connection string to execute queries and prevent Supabase free-tier project inactivity pause." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "#### 🛠️ Steps to configure:" >> $GITHUB_STEP_SUMMARY
+            echo "1. Open your repository **Settings** &rarr; **Secrets and variables** &rarr; **Actions**" >> $GITHUB_STEP_SUMMARY
+            echo "   ([Direct Link](https://github.com/${{ github.repository }}/settings/secrets/actions))" >> $GITHUB_STEP_SUMMARY
+            echo "2. Click **New repository secret**" >> $GITHUB_STEP_SUMMARY
+            echo "3. Name: \`DATABASE_URL\`" >> $GITHUB_STEP_SUMMARY
+            echo "4. Secret: Paste your Supabase PostgreSQL connection string" >> $GITHUB_STEP_SUMMARY
+            echo "5. *(Optional)* Add \`SUPABASE_ANON_KEY\` and \`SUPABASE_PROJECT_REF\` for REST gateway keepalive" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "After adding the secret, re-run this workflow." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+      - name: Checkout Repository
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Execute Supabase Database Heartbeat
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL || secrets.DATABASE_UR }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: npm run db:keepalive
+
+      - name: Publish Workflow Summary
+        if: always()
+        run: |
+          echo "### 📡 Supabase Database Heartbeat Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Executed At:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** ${{ job.status == 'success' && '✅ Database Active (Inactivity Timer Reset)' || '⚠️ Heartbeat Incomplete' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> Free-tier Supabase projects automatically pause after 7 days without queries. This automated pipeline executes an active query every 2 days to keep your database permanently active." >> $GITHUB_STEP_SUMMARY

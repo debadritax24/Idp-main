@@ -1,0 +1,14 @@
+{
+  "name": "College IDP AuthZero-Pass",
+  "short_name": "AuthZero",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "theme_color": "#0f172a",
+  "background_color": "#ffffff",
+  "display": "standalone"
+}

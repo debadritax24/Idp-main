@@ -1,0 +1,75 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Lint, Typecheck, Test & Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Prepare Test Environment File
+        run: |
+          cat << 'EOF' > .env
+          NEXT_PUBLIC_APP_URL=http://localhost:3000
+          DATABASE_URL=postgresql://postgres.test:testpassword@aws-0-region.pooler.supabase.com:6543/postgres?pgbouncer=true
+          DIRECT_URL=postgresql://postgres.test:testpassword@db.supabase.com:5432/postgres
+          SMTP_HOST=smtp.example.com
+          SMTP_PORT=587
+          SMTP_SECURE=false
+          SMTP_USER=test-user
+          SMTP_PASSWORD=test-password
+          SMTP_FROM="College IDP Auth <auth@example.com>"
+          MAGIC_LINK_SECRET=test-cryptographically-secure-secret-32-chars
+          DEMO_MODE=true
+          EOF
+
+      - name: Verify Code Formatting
+        run: npm run format:check
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run TypeScript Typecheck
+        run: npm run typecheck
+
+      - name: Run Automated Test Suite
+        run: npm test
+
+      - name: Compile Production Build
+        run: npm run build
+
+      - name: Touch Supabase Database (If Secrets Configured)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL || secrets.DATABASE_UR }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -n "$DATABASE_URL" ] || [ -n "$DIRECT_URL" ]; then
+            npm run db:keepalive || true
+          else
+            echo "No database connection secrets configured; skipping database keep-alive touch."
+          fi
